@@ -49,6 +49,8 @@ func New(dir string, options ...Option) (app *App, err error) {
 		option(o)
 	}
 
+	fmt.Fprintf(os.Stderr, "New %v\n", options)
+
 	// List of cleanup functions to run in case of errors.
 	cleanups := []func(){}
 	defer func() {
@@ -68,55 +70,68 @@ func New(dir string, options ...Option) (app *App, err error) {
 		return nil, err
 	}
 	if !infoFileExists {
+		fmt.Fprintf(os.Stderr, "New not infoFileExists\n")
 		if o.Address == "" {
 			o.Address = defaultAddress()
+			fmt.Fprintf(os.Stderr, "New not infoFileExists default address\n")
 		}
 		if len(o.Cluster) == 0 {
 			info.ID = dqlite.BootstrapID
+			fmt.Fprintf(os.Stderr, "New not infoFileExists len(o.Cluster) == 0 %v\n", info.ID)
 		} else {
 			info.ID = dqlite.GenerateID(o.Address)
+			fmt.Fprintf(os.Stderr, "New not infoFileExists GenerateID %v\n", info.ID)
 			if err := fileWrite(dir, joinFile, []byte{}); err != nil {
 				return nil, err
 			}
 		}
 		info.Address = o.Address
+		fmt.Fprintf(os.Stderr, "New not infoFileExists info.Address %v\n", info.Address)
 
 		if err := fileMarshal(dir, infoFile, info); err != nil {
+			fmt.Fprintf(os.Stderr, "New not infoFileExists fileMarshal failed\n")
 			return nil, err
 		}
 
 		cleanups = append(cleanups, func() { fileRemove(dir, infoFile) })
 	} else {
 		if err := fileUnmarshal(dir, infoFile, &info); err != nil {
+			fmt.Fprintf(os.Stderr, "New infoFileExists fileUnMarshal failed\n")
 			return nil, err
 		}
 		if o.Address != "" && o.Address != info.Address {
-			return nil, fmt.Errorf("address %q in info.yaml does not match %q", info.Address, o.Address)
+			fmt.Fprintf(os.Stderr, "New infoFileExists address in info.yaml does not match %q %q\n", info.Address, o.Address)
+			return nil, fmt.Errorf("address %q in info.yaml does not match %q\n", info.Address, o.Address)
 		}
 	}
 
 	joinFileExists, err := fileExists(dir, joinFile)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "New fileExists joinFile failed\n")
 		return nil, err
 	}
 
 	if info.ID == dqlite.BootstrapID && joinFileExists {
+		fmt.Fprintf(os.Stderr, "Bootstrapnode can't join\n")
 		return nil, fmt.Errorf("bootstrap node can't join a cluster")
 	}
 
 	// Open the nodes store.
 	storeFileExists, err := fileExists(dir, storeFile)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "New fileExists storeFile failed\n")
 		return nil, err
 	}
 	store, err := client.NewYamlNodeStore(filepath.Join(dir, storeFile))
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "New NewYamlNodeStore failed\n")
 		return nil, fmt.Errorf("open cluster.yaml node store: %w", err)
 	}
 
 	// The info file and the store file should both exists or none of them
 	// exist.
 	if infoFileExists != storeFileExists {
+		fmt.Fprintf(os.Stderr, "New inconsisten yamls failed\n")
 		return nil, fmt.Errorf("inconsistent info.yaml and cluster.yaml")
 	}
 
@@ -124,11 +139,13 @@ func New(dir string, options ...Option) (app *App, err error) {
 		// If this is a brand new application node, populate the store
 		// either with the node's address (for bootstrap nodes) or with
 		// the given cluster addresses (for joining nodes).
+		fmt.Fprintf(os.Stderr, "New !storeFileExists\n")
 		nodes := []client.NodeInfo{}
 		if info.ID == dqlite.BootstrapID {
 			nodes = append(nodes, client.NodeInfo{Address: info.Address})
 		} else {
 			if len(o.Cluster) == 0 {
+				fmt.Fprintf(os.Stderr, "New !storeFileExists fail no cluster address\n")
 				return nil, fmt.Errorf("no cluster addresses provided")
 			}
 			for _, address := range o.Cluster {
@@ -136,6 +153,7 @@ func New(dir string, options ...Option) (app *App, err error) {
 			}
 		}
 		if err := store.Set(context.Background(), nodes); err != nil {
+			fmt.Fprintf(os.Stderr, "New !storeFileExists fail store failed\n")
 			return nil, fmt.Errorf("initialize node store: %w", err)
 		}
 		cleanups = append(cleanups, func() { fileRemove(dir, storeFile) })
@@ -155,9 +173,11 @@ func New(dir string, options ...Option) (app *App, err error) {
 			nodeBindAddress = fmt.Sprintf("@snap.%s.dqlite-%d", snapInstanceName, info.ID)
 		}
 
+		fmt.Fprintf(os.Stderr, "TLS dialfunc\n")
 		nodeDial = makeNodeDialFunc(o.TLS.Dial)
 	} else {
 		nodeBindAddress = info.Address
+		fmt.Fprintf(os.Stderr, "Default dialfunc\n")
 		nodeDial = client.DefaultDialFunc
 	}
 	node, err := dqlite.New(
@@ -168,9 +188,11 @@ func New(dir string, options ...Option) (app *App, err error) {
 		dqlite.WithNetworkLatency(o.NetworkLatency),
 	)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "New create node failed\n")
 		return nil, fmt.Errorf("create node: %w", err)
 	}
 	if err := node.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "New start node failed\n")
 		return nil, fmt.Errorf("start node: %w", err)
 	}
 	cleanups = append(cleanups, func() { node.Close() })
@@ -183,6 +205,7 @@ func New(dir string, options ...Option) (app *App, err error) {
 
 	driver, err := driver.New(store, driver.WithDialFunc(driverDial), driver.WithLogFunc(o.Log))
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "New create driver failed\n")
 		return nil, fmt.Errorf("create driver: %w", err)
 	}
 	driverIndex++
@@ -190,10 +213,12 @@ func New(dir string, options ...Option) (app *App, err error) {
 	sql.Register(driverName, driver)
 
 	if o.Voters < 3 || o.Voters%2 == 0 {
+		fmt.Fprintf(os.Stderr, "New invalid voters failed %v\n", o.Voters)
 		return nil, fmt.Errorf("invalid voters %d: must be an odd number greater than 1", o.Voters)
 	}
 
 	if o.StandBys%2 == 0 {
+		fmt.Fprintf(os.Stderr, "New standbys failed\n")
 		return nil, fmt.Errorf("invalid stand-bys %d: must be an odd number", o.StandBys)
 	}
 
@@ -222,6 +247,7 @@ func New(dir string, options ...Option) (app *App, err error) {
 	if o.TLS != nil {
 		listener, err := net.Listen("tcp", info.Address)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "New tls listen failed %v\n", o.Voters)
 			return nil, fmt.Errorf("listen to %s: %w", info.Address, err)
 		}
 		proxyCh := make(chan struct{}, 0)
@@ -229,6 +255,7 @@ func New(dir string, options ...Option) (app *App, err error) {
 		app.listener = listener
 		app.proxyCh = proxyCh
 
+		fmt.Fprintf(os.Stderr, "Start proxy\n")
 		go app.proxy()
 
 		cleanups = append(cleanups, func() { listener.Close(); <-proxyCh })
@@ -418,6 +445,7 @@ func (a *App) proxy() {
 			cancel()
 			wg.Wait()
 			close(a.proxyCh)
+			fmt.Fprintf(os.Stderr, "proxy Accept fail\n")
 			return
 		}
 		address := client.RemoteAddr()
@@ -426,6 +454,7 @@ func (a *App) proxy() {
 		if err != nil {
 			a.error("dial local node: %v", err)
 			client.Close()
+			fmt.Fprintf(os.Stderr, "proxy Dial fail %v\n", address)
 			continue
 		}
 		wg.Add(1)

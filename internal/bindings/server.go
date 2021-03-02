@@ -108,6 +108,7 @@ func ConfigMultiThread() error {
 func NewNode(id uint64, address string, dir string) (*Node, error) {
 	var server *C.dqlite_node
 	cid := C.dqlite_node_id(id)
+	fmt.Fprintf(os.Stderr, "NewNode %v %v %v\n", id, address, dir)
 
 	caddress := C.CString(address)
 	defer C.free(unsafe.Pointer(caddress))
@@ -117,6 +118,7 @@ func NewNode(id uint64, address string, dir string) (*Node, error) {
 
 	if rc := C.dqlite_node_create(cid, caddress, cdir, &server); rc != 0 {
 		errmsg := C.GoString(C.dqlite_node_errmsg(server))
+		fmt.Fprintf(os.Stderr, "NewNode %v %v %v %v failed\n", id, address, dir, errmsg)
 		return nil, fmt.Errorf("%s", errmsg)
 	}
 
@@ -128,6 +130,7 @@ func (s *Node) SetDialFunc(dial protocol.DialFunc) error {
 	connectLock.Lock()
 	defer connectLock.Unlock()
 	connectIndex++
+	fmt.Fprintf(os.Stderr, "SetDialFunc index:%v func:%v\n", connectIndex, dial)
 	connectRegistry[connectIndex] = dial
 	if rc := C.configConnectFunc(server, connectIndex); rc != 0 {
 		return fmt.Errorf("failed to set connect func")
@@ -220,6 +223,7 @@ func GenerateID(address string) uint64 {
 func connToSocket(conn net.Conn) (C.int, error) {
 	file, err := conn.(fileConn).File()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "connToSocket failed:%v\n", err)
 		return C.int(-1), err
 	}
 
@@ -229,6 +233,7 @@ func connToSocket(conn net.Conn) (C.int, error) {
 	// close it.
 	fd2 := C.dupCloexec(fd1)
 	if fd2 < 0 {
+		fmt.Fprintf(os.Stderr, "connToSocket dup failed:%v\n", fd2)
 		return C.int(-1), fmt.Errorf("failed to dup socket fd")
 	}
 
@@ -248,18 +253,22 @@ func connectWithDial(handle C.uintptr_t, address *C.char, fd *C.int) C.int {
 	connectLock.Lock()
 	defer connectLock.Unlock()
 	dial := connectRegistry[handle]
+	fmt.Fprintf(os.Stderr, "connectWithDial handle:%v addr:%s dial:%v\n", handle, address, dial)
 	// TODO: make timeout customizable.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, err := dial(ctx, C.GoString(address))
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "connectWithDial handle:%v addr:%s dial:%v failed:%v\n", handle, address, dial, err)
 		return C.RAFT_NOCONNECTION
 	}
 	socket, err := connToSocket(conn)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "connectWithDial handle:%v addr:%s dial:%v connToSocket failed:%v\n", handle, address, dial, err)
 		return C.RAFT_NOCONNECTION
 	}
 	*fd = socket
+	fmt.Fprintf(os.Stderr, "connectWithDial success handle:%v addr:%s dial:%v\n", handle, address, dial)
 	return C.int(0)
 }
 

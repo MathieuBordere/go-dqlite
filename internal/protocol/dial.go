@@ -3,12 +3,15 @@ package protocol
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
+	"os"
 	"strings"
 )
 
 // Dial function handling plain TCP and Unix socket endpoints.
 func Dial(ctx context.Context, address string) (net.Conn, error) {
+	fmt.Fprintf(os.Stderr, "protocol.Dial %s\n", address)
 	family := "tcp"
 	if strings.HasPrefix(address, "@") {
 		family = "unix"

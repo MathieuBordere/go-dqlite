@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
+	"os"
 
 	"github.com/canonical/go-dqlite/internal/protocol"
 )
@@ -19,6 +21,7 @@ func DefaultDialFunc(ctx context.Context, address string) (net.Conn, error) {
 // The given dial function will be used to establish the network connection,
 // and the given TLS config will be used for encryption.
 func DialFuncWithTLS(dial DialFunc, config *tls.Config) DialFunc {
+	fmt.Fprintf(os.Stderr, "DialFuncWithTLS\n")
 	return func(ctx context.Context, addr string) (net.Conn, error) {
 		clonedConfig := config.Clone()
 		if len(clonedConfig.ServerName) == 0 {

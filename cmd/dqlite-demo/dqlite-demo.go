@@ -77,6 +77,15 @@ Complete documentation is available at https://github.com/canonical/go-dqlite`,
 					if _, err := db.Exec(update, key, value); err != nil {
 						result = fmt.Sprintf("Error: %s", err.Error())
 					}
+				case "POST":
+					result = "done"
+					value, _ := ioutil.ReadAll(r.Body)
+					for i := 0 ; i < 10000; i++ {
+						val := fmt.Sprintf("%s loop=%d", value, i)
+						if _, err := db.Exec(update, key, val); err != nil {
+							result = fmt.Sprintf("Error: %s %d", err.Error(), i)
+						}
+					}
 				default:
 					result = fmt.Sprintf("Error: unsupported method %q", r.Method)
 

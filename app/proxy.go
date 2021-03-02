@@ -23,9 +23,11 @@ import (
 //
 // In case of errors, details are returned.
 func proxy(ctx context.Context, remote net.Conn, local net.Conn, config *tls.Config) error {
+	fmt.Fprintf(os.Stderr, "app proxy start\n")
 	tcp := remote.(*net.TCPConn)
 
 	if err := setKeepalive(tcp); err != nil {
+		fmt.Fprintf(os.Stderr, "app proxy setKeepAlive failed\n")
 		return err
 	}
 
@@ -71,6 +73,7 @@ func proxy(ctx context.Context, remote net.Conn, local net.Conn, config *tls.Con
 		}
 		remote.Close()
 		local.Close()
+		fmt.Fprintf(os.Stderr, "app proxy remoteToLocal failed\n")
 	case err := <-localToRemote:
 		if err != nil {
 			errs[0] = fmt.Errorf("local -> remote: %v", err)
@@ -81,13 +84,15 @@ func proxy(ctx context.Context, remote net.Conn, local net.Conn, config *tls.Con
 		}
 		remote.Close()
 		local.Close()
-
+		fmt.Fprintf(os.Stderr, "app proxy localToRemote failed\n")
 	}
 
 	if errs[0] != nil || errs[1] != nil {
+		fmt.Fprintf(os.Stderr, "app proxy error\n")
 		return proxyError{first: errs[0], second: errs[1]}
 	}
 
+	fmt.Fprintf(os.Stderr, "app proxy exit\n")
 	return nil
 }
 
