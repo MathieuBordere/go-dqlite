@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"time"
 
 	"github.com/Rican7/retry"
@@ -115,13 +116,16 @@ func (c *Connector) Connect(ctx context.Context) (*Protocol, error) {
 // Make a single attempt to establish a connection to the leader server trying
 // all addresses available in the store.
 func (c *Connector) connectAttemptAll(ctx context.Context, log logging.Func) (*Protocol, error) {
+	fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll %v\n", time.Now().Unix())
 	servers, err := c.store.Get(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get servers")
 	}
 
+	fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll servers:%v %v\n", servers, time.Now().Unix())
 	// Make an attempt for each address until we find the leader.
 	for _, server := range servers {
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll server:%v %v\n", server, time.Now().Unix())
 		log := func(l logging.Level, format string, a ...interface{}) {
 			format = fmt.Sprintf("server %s: ", server.Address) + format
 			log(l, format, a...)
@@ -133,11 +137,13 @@ func (c *Connector) connectAttemptAll(ctx context.Context, log logging.Func) (*P
 		version := VersionOne
 		protocol, leader, err := c.connectAttemptOne(ctx, server.Address, version)
 		if err == errBadProtocol {
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll err:%v %v\n", err, time.Now().Unix())
 			log(logging.Warn, "unsupported protocol %d, attempt with legacy", version)
 			version = VersionLegacy
 			protocol, leader, err = c.connectAttemptOne(ctx, server.Address, version)
 		}
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll err:%v %v\n", err, time.Now().Unix())
 			// This server is unavailable, try with the next target.
 			log(logging.Warn, err.Error())
 			continue
@@ -145,11 +151,13 @@ func (c *Connector) connectAttemptAll(ctx context.Context, log logging.Func) (*P
 		if protocol != nil {
 			// We found the leader
 			log(logging.Debug, "connected")
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll leader found %v %v\n", server, time.Now().Unix())
 			return protocol, nil
 		}
 		if leader == "" {
 			// This server does not know who the current leader is,
 			// try with the next target.
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll no known leader %v %v\n", server, time.Now().Unix())
 			log(logging.Warn, "no known leader")
 			continue
 		}
@@ -157,6 +165,7 @@ func (c *Connector) connectAttemptAll(ctx context.Context, log logging.Func) (*P
 		// If we get here, it means this server reported that another
 		// server is the leader, let's close the connection to this
 		// server and try with the suggested one.
+		fmt.Fprintf(os.Stderr, "[GODQL] connect to leader %v %v\n", leader, time.Now().Unix())
 		log(logging.Debug, "connect to reported leader %s", leader)
 
 		ctx, cancel = context.WithTimeout(ctx, c.config.AttemptTimeout)
@@ -166,19 +175,23 @@ func (c *Connector) connectAttemptAll(ctx context.Context, log logging.Func) (*P
 		if err != nil {
 			// The leader reported by the previous server is
 			// unavailable, try with the next target.
+			fmt.Fprintf(os.Stderr, "[GODQL] leader unavailable %v %v\n", leader, time.Now().Unix())
 			log(logging.Warn, "reported leader unavailable err=%v", err)
 			continue
 		}
 		if protocol == nil {
 			// The leader reported by the target server does not consider itself
 			// the leader, try with the next target.
+			fmt.Fprintf(os.Stderr, "[GODQL] leader %v not leader %v\n", leader, time.Now().Unix())
 			log(logging.Warn, "reported leader server is not the leader")
 			continue
 		}
+		fmt.Fprintf(os.Stderr, "[GODQL] connected to leader %v %v\n", leader, time.Now().Unix())
 		log(logging.Debug, "connected")
 		return protocol, nil
 	}
 
+	fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptAll ErrNoAvailableLeader %v\n", time.Now().Unix())
 	return nil, ErrNoAvailableLeader
 }
 
@@ -188,6 +201,7 @@ func Handshake(ctx context.Context, conn net.Conn, version uint64) (*Protocol, e
 	protocol := make([]byte, 8)
 	binary.LittleEndian.PutUint64(protocol, version)
 
+	fmt.Fprintf(os.Stderr, "[GODQL] Handshake %v\n", time.Now().Unix())
 	// Honor the ctx deadline, if present.
 	if deadline, ok := ctx.Deadline(); ok {
 		conn.SetDeadline(deadline)
@@ -197,12 +211,15 @@ func Handshake(ctx context.Context, conn net.Conn, version uint64) (*Protocol, e
 	// Perform the protocol handshake.
 	n, err := conn.Write(protocol)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[GODQL] Handshake write failed %v\n", time.Now().Unix())
 		return nil, errors.Wrap(err, "write handshake")
 	}
 	if n != 8 {
+		fmt.Fprintf(os.Stderr, "[GODQL] Handshake short write %v\n", time.Now().Unix())
 		return nil, errors.Wrap(io.ErrShortWrite, "short handshake write")
 	}
 
+	fmt.Fprintf(os.Stderr, "[GODQL] Handshake success %v\n", time.Now().Unix())
 	return newProtocol(version, conn), nil
 }
 
@@ -219,15 +236,18 @@ func (c *Connector) connectAttemptOne(ctx context.Context, address string, versi
 	dialCtx, cancel := context.WithTimeout(ctx, c.config.DialTimeout)
 	defer cancel()
 
+	fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne %v\n", time.Now().Unix())
 	// Establish the connection.
 	conn, err := c.config.Dial(dialCtx, address)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne dial failed %v\n", time.Now().Unix())
 		return nil, "", errors.Wrap(err, "dial")
 	}
 
 	protocol, err := Handshake(ctx, conn, version)
 	if err != nil {
 		conn.Close()
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne Handshake failed %v\n", time.Now().Unix())
 		return nil, "", err
 	}
 
@@ -245,14 +265,17 @@ func (c *Connector) connectAttemptOne(ctx context.Context, address string, versi
 		// Best-effort detection of a pre-1.0 dqlite node: when sent
 		// version 1 it should close the connection immediately.
 		if err, ok := cause.(*net.OpError); ok && !err.Timeout() || cause == io.EOF {
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne errBadProtocol %v\n", time.Now().Unix())
 			return nil, "", errBadProtocol
 		}
 
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne err %v %v\n", err, time.Now().Unix())
 		return nil, "", err
 	}
 
 	_, leader, err := DecodeNodeCompat(protocol, &response)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne DecodeNodeCompat err %v %v\n", err, time.Now().Unix())
 		protocol.Close()
 		return nil, "", err
 	}
@@ -261,6 +284,7 @@ func (c *Connector) connectAttemptOne(ctx context.Context, address string, versi
 	case "":
 		// Currently this server does not know about any leader.
 		protocol.Close()
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne case empty %v\n", time.Now().Unix())
 		return nil, "", nil
 	case address:
 		// This server is the leader, register ourselves and return.
@@ -271,12 +295,14 @@ func (c *Connector) connectAttemptOne(ctx context.Context, address string, versi
 
 		if err := protocol.Call(ctx, &request, &response); err != nil {
 			protocol.Close()
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne case address %v %v\n", err, time.Now().Unix())
 			return nil, "", err
 		}
 
 		_, err := DecodeWelcome(&response)
 		if err != nil {
 			protocol.Close()
+			fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne case address DecodeWelcome %v %v\n", err, time.Now().Unix())
 			return nil, "", err
 		}
 
@@ -284,9 +310,11 @@ func (c *Connector) connectAttemptOne(ctx context.Context, address string, versi
 		// protocol.heartbeatTimeout = time.Duration(heartbeatTimeout) * time.Millisecond
 		//go protocol.heartbeat()
 
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne case address end %v\n", time.Now().Unix())
 		return protocol, "", nil
 	default:
 		// This server claims to know who the current leader is.
+		fmt.Fprintf(os.Stderr, "[GODQL] connectAttemptOne case default %v\n", time.Now().Unix())
 		protocol.Close()
 		return nil, leader, nil
 	}

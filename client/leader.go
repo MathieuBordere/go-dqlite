@@ -2,6 +2,9 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"time"
 
 	"github.com/canonical/go-dqlite/internal/protocol"
 )
@@ -22,13 +25,16 @@ func FindLeader(ctx context.Context, store NodeStore, options ...Option) (*Clien
 	config := protocol.Config{
 		Dial: o.DialFunc,
 	}
+	fmt.Fprintf(os.Stderr, "[GODQL] FindLeader %v\n", time.Now().Unix())
 	connector := protocol.NewConnector(0, store, config, o.LogFunc)
 	protocol, err := connector.Connect(ctx)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[GODQL] FindLeader err %v %v\n", err, time.Now().Unix())
 		return nil, err
 	}
 
 	client := &Client{protocol: protocol}
 
+	fmt.Fprintf(os.Stderr, "[GODQL] FindLeader End %v\n", time.Now().Unix())
 	return client, nil
 }
